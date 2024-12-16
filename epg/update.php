@@ -265,11 +265,7 @@ function processXmlData($xml_url, $xml_data, $db, $gen_list) {
                 'start' => $startTime,
                 'end' => $startDate === $endDate ? $endTime : '00:00',
                 'title' => (string)$programme->title,
-<<<<<<< HEAD
                 'desc' => isset($programme->desc) && (string)$programme->desc !== (string)$programme->title && strpos((string)$programme->desc, '服务器流量过大') === false ? (string)$programme->desc : (string)$programme->title
-=======
-                'desc' => isset($programme->desc) ? (string)$programme->desc : ''
->>>>>>> 54862cdb00d6e01065d2d1372c1440bd39365f3a
             ];
     
             $currentChannelProgrammes[$channelId]['diyp_data'][$startDate][] = $programmeData;
