@@ -101,14 +101,14 @@ function cleanChannelName($channel, $t2s = false) {
         if (strpos($search, 'regex:') === 0) {
             $pattern = substr($search, 6);
             if (preg_match($pattern, $channel_ori)) {
-                return preg_replace($pattern, $replace, $channel_ori);
+                return strtoupper(preg_replace($pattern, $replace, $channel_ori));
             }
         } else {
             // 普通映射，可能为多对一
             $channels = array_map('trim', explode(',', $search));
             foreach ($channels as $singleChannel) {
                 if (strcasecmp($channel, str_replace($channel_replacements, '', $singleChannel)) === 0) {
-                    return $replace;
+                    return strtoupper($replace);
                 }
             }
         }
@@ -344,6 +344,7 @@ function insertDataToDatabase($channelsData, $db, $sourceUrl, $replaceFlag = tru
                 && preg_match('/节目|節目/u', $title[0])) {
                 continue; // 跳过后续处理
             }
+            
             // 生成 epg_diyp 数据内容
             $diypContent = json_encode([
                 'channel_name' => $channelName,
@@ -352,24 +353,26 @@ function insertDataToDatabase($channelsData, $db, $sourceUrl, $replaceFlag = tru
                 'source' => $sourceUrl,
                 'epg_data' => $diypProgrammes
             ], JSON_UNESCAPED_UNICODE);
+
             // 当天及未来数据覆盖，其他日期数据忽略
             $action = $date >= date('Y-m-d') && $replaceFlag ? 'REPLACE' : 'IGNORE';
-            // 检测数据库类型
-            $is_sqlite = $Config['db_type'] === 'sqlite';
-            // 选择 SQL 语句
-            $sql = $is_sqlite
-                ? "INSERT OR $action INTO epg_data (date, channel, epg_diyp) VALUES (:date, :channel, :epg_diyp)"
-                : ($date >= date('Y-m-d')
+
+            // 根据数据库类型选择 SQL 语句
+            if ($Config['db_type'] === 'sqlite') {
+                $sql = "INSERT OR $action INTO epg_data (date, channel, epg_diyp) VALUES (:date, :channel, :epg_diyp)";
+            } else {
+                $sql = ($action === 'REPLACE')
                     ? "REPLACE INTO epg_data (date, channel, epg_diyp) VALUES (:date, :channel, :epg_diyp)"
-                    : "INSERT IGNORE INTO epg_data (date, channel, epg_diyp) VALUES (:date, :channel, :epg_diyp)"
-                );
+                    : "INSERT IGNORE INTO epg_data (date, channel, epg_diyp) VALUES (:date, :channel, :epg_diyp)";
+            }
+
             // 准备并执行 SQL 语句
             $stmt = $db->prepare($sql);
             $stmt->bindValue(':date', $date, PDO::PARAM_STR);
             $stmt->bindValue(':channel', $channelName, PDO::PARAM_STR);
             $stmt->bindValue(':epg_diyp', $diypContent, PDO::PARAM_STR);
             $stmt->execute();
-            if ($action == 'REPLACE' || $stmt->rowCount() > 0){
+            if ($stmt->rowCount() > 0) {
                 $recordKey = $channelName . '-' . $date;
                 $processedRecords[$recordKey] = true;
             }
@@ -470,7 +473,7 @@ function doParseSourceInfo($urlLine = null) {
                         // 检查该行是否已经修改
                         $existingRow = isset($existingData[$tag]) ? $existingData[$tag] : null;
                         $rowData = $existingRow ? $existingRow : [
-                            'groupTitle' => trim($groupPrefix . $groupTitle),
+                            'groupTitle' => trim(($groupPrefix && strpos($groupTitle, $groupPrefix) !== 0 ? $groupPrefix : '') . $groupTitle),
                             'channelName' => $liveChannelNameProcess ? $channelName : $originalChannelName,
                             'streamUrl' => $streamUrl,
                             'iconUrl' => $iconUrl ?? (preg_match('/tvg-logo="([^"]+)"/', $channelInfo, $match) ? $match[1] : ''),
@@ -513,7 +516,7 @@ function doParseSourceInfo($urlLine = null) {
                     // 检查该行是否已经修改
                     $existingRow = isset($existingData[$tag]) ? $existingData[$tag] : null;
                     $rowData = $existingRow ? $existingRow : [
-                        'groupTitle' => trim($groupPrefix . $groupTitle),
+                        'groupTitle' => trim(($groupPrefix && strpos($groupTitle, $groupPrefix) !== 0 ? $groupPrefix : '') . $groupTitle),
                         'channelName' => $liveChannelNameProcess ? $channelName : $originalChannelName,
                         'streamUrl' => $streamUrl,
                         'iconUrl' => $iconUrl,
@@ -546,6 +549,10 @@ function doParseSourceInfo($urlLine = null) {
 function generateLiveFiles($channelData, $fileName) {
     global $liveDir;
 
+    // 默认参数
+    $fuzzyMatchingEnable = true;
+    $commentEnabled = true;
+
     // 读取 template.txt 文件内容
     $templateFilePath = $liveDir . 'template.txt';
     $templateGroups = [];
@@ -555,6 +562,16 @@ function generateLiveFiles($channelData, $fileName) {
         foreach (explode("\n", $templateContent) as $line) {
             $line = trim($line, " ,");
             if (empty($line)) continue;
+
+            if (strpos($line, '$') === 0) {
+                if (strpos($line, '精确匹配') !== false) { // 关闭模糊匹配
+                    $fuzzyMatchingEnable = false;
+                }
+                if (strpos($line, '关闭备注') !== false) { // 关闭备注
+                    $commentEnabled = false;
+                }
+                continue;
+            }
 
             if (strpos($line, '#') === 0) {
                 $currentGroup = substr($line, 1);  // 提取分组名
@@ -582,12 +599,13 @@ function generateLiveFiles($channelData, $fileName) {
 
                     // 检查频道是否匹配
                     $cleanChannelNameData = cleanChannelName($channelNameData);
-                    if ($cleanChannelNameData === $cleanChannelName || 
+                    if ($channelNameData === $channelName ||
+                        $fuzzyMatchingEnable && ($cleanChannelNameData === $cleanChannelName || 
                         $cleanChannelName !== 'CGTN' && stripos($cleanChannelName, 'CCTV') === false &&
                         (stripos($cleanChannelNameData, $cleanChannelName) !== false || 
-                        stripos($cleanChannelName, $cleanChannelNameData) !== false)) {
+                        stripos($cleanChannelName, $cleanChannelNameData) !== false))) {
                         
-                        $streamUrl .= strpos($streamUrl, '$') === false ? "\${$groupTitle}" : ""; // 更新流 URL
+                        $streamUrl .= ($commentEnabled && strpos($streamUrl, '$') === false) ? "\${$groupTitle}" : ""; // 更新流 URL
                         $row['groupTitle'] = $templateGroup;
                         $row['channelName'] = $channelName;
                         $row['streamUrl'] = $streamUrl;
