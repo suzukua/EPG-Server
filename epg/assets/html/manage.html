@@ -169,7 +169,7 @@
             地址前 # 临时停用，后 # 备注并作为分组前缀，快捷键：Ctrl+/<br>
             示例：https://xxx.xx/xx.m3u #前缀1:<br>
             在生成 m3u 文件时，「台标地址」、「tvg-id」、「tvg-name」字段可选<br>
-            转换直播源：<?php echo $serverUrl . '/?token=' . $Config['token']; ?>&live=txt/m3u&url=xxx<br>
+            转换直播源：<?php echo $serverUrl . '/index.php?token=' . $Config['token']; ?>&live=txt/m3u&url=xxx<br>
             可添加 &latest=1 获取最新文件，不读取缓存<br>
             同步：更新数据时，同步更新直播源数据，默认关闭<br>
             改名：解析直播源数据时，使用数据库信息修正频道名，默认关闭<br>
@@ -179,16 +179,16 @@
             模板：生成直播源文件时仅包含模板数据，分组、频道名以模板为准<br>
             分组为「default」时，包含所有来源数据并使用原分组名称<br>
             模糊匹配：默认开启，选「否」进行精准匹配<br>
-            路线备注：默认关闭，选「是」在直播地址后添加「$分组」<br>
+            线路备注：默认关闭，在直播地址后添加「$分组」<br>
             
             <h3 style="line-height: 0.5;">其他设置</h3>
             数据保存天数：清理超过设定天数的数据，包括节目单、定时日志、更新日志<br>
             生成 xml 文件：默认生成包含预告数据的 xml 跟 xml.gz 文件，可自行关闭<br>
             数据导入导出：包含 /data/ 文件夹的所有数据<br>
             返回精彩节目：无数据时返回「精彩节目」用于回放，默认关闭<br>
-            补充预告：尝试补充预告数据，仅在数据库存在该频道信息时生效，默认关闭<br>
+            Token 范围：点击后可修改 Token；可设置范围，默认「直播源」<br>
+            User-Agent 范围：点击后可修改 UA，可用英文逗号分隔；可设置范围，默认「无」<br>
             全转简中：节目单、描述信息转简体中文，默认关闭<br>
-            token 范围：点击后可修改，可设置范围，默认「直播源」<br>
             检查版本更新：进入设置界面后检测版本更新（仅提醒），默认打开<br>
             限定频道：可粘贴直播地址进行解析，生成 xml 时包含该部分信息<br>
             Memcached：已移除相关设置，默认打开，缓存在更新数据时清除
@@ -365,7 +365,7 @@
             <input type="file" name="liveSourceFile" id="liveSourceFile" style="display: none;" accept=".m3u, .txt">
             <button id="uploadSourceBtn" onclick="document.getElementById('liveSourceFile').click()">上传源</button>
             <button id="parseSourceInfoBtn" onclick="parseSourceInfo()">解析源</button>
-            <button onclick="showLiveUrl(`<?php echo $Config['token']; ?>`, `<?php echo $serverUrl; ?>`)">访问地址</button>
+            <button id="showLiveUrlBtn" onclick="showLiveUrl(`<?php echo $Config['token']; ?>`, `<?php echo $serverUrl; ?>`, `<?php echo $Config['token_range']; ?>`)">访问地址</button>
             <button id="toggleLiveSourceSyncBtn" onclick="toggleStatus('toggleLiveSourceSyncBtn')">
                 同步: <?php echo (isset($Config['live_source_auto_sync']) && $Config['live_source_auto_sync'] == 1 ? '是' : '否'); ?>
             </button>
@@ -442,10 +442,12 @@
                 </select>
             </div>
             <div class="column">
-                <label for="live_url_comment">路线备注：</label>
+                <label for="live_url_comment">线路备注：</label>
                 <select id="live_url_comment" name="live_url_comment" required>
-                    <option value="1" <?php if (isset($Config['live_url_comment']) && $Config['live_url_comment'] == 1) echo 'selected'; ?>>是</option>
-                    <option value="0" <?php if (!isset($Config['live_url_comment']) || $Config['live_url_comment'] == 0) echo 'selected'; ?>>否</option>
+                    <option value="0" <?php if (!isset($Config['live_url_comment']) || $Config['live_url_comment'] == 0) echo 'selected'; ?>>关闭</option>
+                    <option value="1" <?php if (isset($Config['live_url_comment']) && $Config['live_url_comment'] == 1) echo 'selected'; ?>>TXT</option>
+                    <option value="2" <?php if (isset($Config['live_url_comment']) && $Config['live_url_comment'] == 2) echo 'selected'; ?>>M3U</option>
+                    <option value="3" <?php if (isset($Config['live_url_comment']) && $Config['live_url_comment'] == 3) echo 'selected'; ?>>全部</option>
                 </select>
             </div>
             <div class="column">
@@ -497,17 +499,21 @@
                 </select>
             </div>
             <div class="column">
-                <label for="tvmao_default" title="">补充预告：</label>
-                <select id="tvmao_default" name="tvmao_default" required>
-                    <option value="1" <?php if (isset($Config['tvmao_default']) && $Config['tvmao_default'] == 1) echo 'selected'; ?>>是</option>
-                    <option value="0" <?php if (!isset($Config['tvmao_default']) || $Config['tvmao_default'] == 0) echo 'selected'; ?>>否</option>
+                <label for="token_range"><span class="blue-span" id="change_token_span" onclick="changeTokenUA('token', `<?php echo $Config['token']; ?>`)">Token</span> 范围：</label>
+                <select id="token_range" name="token_range" required onchange="showTokenRangeMessage(`<?php echo $Config['token']; ?>`, `<?php echo $serverUrl; ?>`)">
+                    <option value="0" <?php if (isset($Config['token_range']) && $Config['token_range'] == 0) echo 'selected'; ?>>无</option>
+                    <option value="1" <?php if (!isset($Config['token_range']) || $Config['token_range'] == 1) echo 'selected'; ?>>直播源</option>
+                    <option value="2" <?php if (isset($Config['token_range']) && $Config['token_range'] == 2) echo 'selected'; ?>>EPG</option>
+                    <option value="3" <?php if (isset($Config['token_range']) && $Config['token_range'] == 3) echo 'selected'; ?>>全部</option>
                 </select>
             </div>
             <div class="column">
-                <label for="all_chs" title="">全转简中：</label>
-                <select id="all_chs" name="all_chs" required>
-                    <option value="1" <?php if (isset($Config['all_chs']) && $Config['all_chs'] == 1) echo 'selected'; ?>>是</option>
-                    <option value="0" <?php if (!isset($Config['all_chs']) || $Config['all_chs'] == 0) echo 'selected'; ?>>否</option>
+                <label for="user_agent_range"><span class="blue-span" id="change_ua_span" onclick="changeTokenUA('user_agent', `<?php echo $Config['user_agent']; ?>`)">User-Agent</span> 范围：</label>
+                <select id="user_agent_range" name="user_agent_range" required">
+                    <option value="0" <?php if (!isset($Config['user_agent_range']) || $Config['user_agent_range'] == 0) echo 'selected'; ?>>无</option>
+                    <option value="1" <?php if (isset($Config['user_agent_range']) && $Config['user_agent_range'] == 1) echo 'selected'; ?>>直播源</option>
+                    <option value="2" <?php if (isset($Config['user_agent_range']) && $Config['user_agent_range'] == 2) echo 'selected'; ?>>EPG</option>
+                    <option value="3" <?php if (isset($Config['user_agent_range']) && $Config['user_agent_range'] == 3) echo 'selected'; ?>>全部</option>
                 </select>
             </div>
         </div>
@@ -515,12 +521,10 @@
         <!-- 第三行 -->
         <div class="row">
             <div class="column">
-                <label for="token_range"><span class="blue-span" id="change_token_span" onclick="changeToken(`<?php echo $Config['token']; ?>`)">token</span> 范围：</label>
-                <select id="token_range" name="token_range" required onchange="showTokenRangeMessage(`<?php echo $Config['token']; ?>`, `<?php echo $serverUrl; ?>`)">
-                    <option value="0" <?php if (isset($Config['token_range']) && $Config['token_range'] == 0) echo 'selected'; ?>>无</option>
-                    <option value="1" <?php if (!isset($Config['token_range']) || $Config['token_range'] == 1) echo 'selected'; ?>>直播源</option>
-                    <option value="2" <?php if (isset($Config['token_range']) && $Config['token_range'] == 2) echo 'selected'; ?>>EPG</option>
-                    <option value="3" <?php if (isset($Config['token_range']) && $Config['token_range'] == 3) echo 'selected'; ?>>全部</option>
+                <label for="all_chs" title="">全转简中：</label>
+                <select id="all_chs" name="all_chs" required>
+                    <option value="1" <?php if (isset($Config['all_chs']) && $Config['all_chs'] == 1) echo 'selected'; ?>>是</option>
+                    <option value="0" <?php if (!isset($Config['all_chs']) || $Config['all_chs'] == 0) echo 'selected'; ?>>否</option>
                 </select>
             </div>
             <div class="column">
